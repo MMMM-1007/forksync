@@ -1,0 +1,21 @@
+# 本地配置与运行产物（含 token，绝不要提交）
+config.json
+config.json.tmp
+config.broken.json
+logs/
+tests/tmp/
+tests/tmp2/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

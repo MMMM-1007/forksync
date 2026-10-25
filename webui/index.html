@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ForkSync · GitHub fork 自动同步</title>
+<style>
+  :root{
+    --bg:#0a0e14; --bg2:#0e141c; --panel:#121a24; --panel2:#16202c;
+    --line:#22303f; --line2:#2c3d50;
+    --text:#e6edf5; --dim:#8b9cb0; --dim2:#63768c;
+    --accent:#4f9cf9; --ok:#34d399; --warn:#f5b544; --bad:#f87171; --purple:#a78bfa;
+    --radius:12px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:
+      radial-gradient(1100px 500px at 12% -10%, rgba(79,156,249,.13), transparent 60%),
+      radial-gradient(900px 460px at 95% 0%, rgba(167,139,250,.10), transparent 55%),
+      var(--bg);
+    color:var(--text);
+    font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+    min-height:100vh;
+  }
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  code,.mono{font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace}
+
+  .wrap{max-width:1320px;margin:0 auto;padding:22px 20px 60px}
+
+  /* ---------- 顶栏 ---------- */
+  header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:20px}
+  .logo{display:flex;align-items:center;gap:11px}
+  .mark{
+    width:38px;height:38px;border-radius:11px;display:grid;place-items:center;
+    background:linear-gradient(145deg,#1d4ed8,#7c3aed);box-shadow:0 6px 18px rgba(37,99,235,.35);
+    font-size:19px
+  }
+  h1{font-size:19px;margin:0;letter-spacing:.3px}
+  .sub{font-size:12px;color:var(--dim2);margin-top:-2px}
+  .spacer{flex:1}
+
+  .chip{
+    display:inline-flex;align-items:center;gap:7px;padding:6px 11px;border-radius:999px;
+    background:var(--panel);border:1px solid var(--line);font-size:12.5px;color:var(--dim);cursor:pointer;
+    transition:.15s
+  }
+  .chip:hover{border-color:var(--line2);color:var(--text)}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--dim2);flex:none}
+  .dot.on{background:var(--ok);box-shadow:0 0 8px rgba(52,211,153,.7)}
+  .dot.off{background:var(--bad)}
+  .dot.wait{background:var(--warn);animation:pulse 1.4s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+
+  /* ---------- 通用 ---------- */
+  .card{background:linear-gradient(180deg,var(--panel),var(--bg2));border:1px solid var(--line);border-radius:var(--radius)}
+  .card-h{display:flex;align-items:center;gap:10px;padding:13px 16px;border-bottom:1px solid var(--line)}
+  .card-h h2{font-size:13.5px;margin:0;font-weight:600;letter-spacing:.4px;color:#c8d6e6}
+  .card-b{padding:16px}
+
+  button{
+    font:inherit;cursor:pointer;border-radius:9px;border:1px solid var(--line2);
+    background:var(--panel2);color:var(--text);padding:7px 13px;transition:.14s;white-space:nowrap
+  }
+  button:hover{border-color:#3c5268;background:#1b2734}
+  button:active{transform:translateY(1px)}
+  button:disabled{opacity:.45;cursor:not-allowed;transform:none}
+  button.primary{background:linear-gradient(180deg,#2f7fe0,#1f63bd);border-color:#2d6fc4;font-weight:600}
+  button.primary:hover{background:linear-gradient(180deg,#3b8bef,#2470cc)}
+  button.ghost{background:transparent}
+  button.danger{color:#fca5a5;border-color:#4b2b32}
+  button.danger:hover{background:#2a1619;border-color:#6b3941}
+  button.sm{padding:4px 9px;font-size:12.5px;border-radius:7px}
+  button.link{background:none;border:none;color:var(--dim);padding:2px 4px}
+  button.link:hover{color:var(--text);background:none}
+
+  input,select{
+    font:inherit;background:#0c131b;color:var(--text);border:1px solid var(--line2);
+    border-radius:9px;padding:8px 11px;outline:none;transition:.14s;min-width:0
+  }
+  input:focus,select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(79,156,249,.15)}
+  input::placeholder{color:#4d5f74}
+  label.f{display:flex;flex-direction:column;gap:6px;font-size:12.5px;color:var(--dim)}
+
+  /* ---------- 统计 ---------- */
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+  .stat{padding:13px 15px;border-radius:var(--radius);background:linear-gradient(180deg,var(--panel),var(--bg2));border:1px solid var(--line)}
+  .stat .n{font-size:24px;font-weight:700;line-height:1.2}
+  .stat .l{font-size:12px;color:var(--dim2);margin-top:1px}
+  .stat.o .n{color:var(--ok)} .stat.w .n{color:var(--warn)} .stat.b .n{color:var(--bad)} .stat.p .n{color:var(--purple)}
+
+  /* ---------- 新增 ---------- */
+  .add{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+  .add .grow{flex:1;min-width:280px}
+  .add input{width:100%}
+
+  /* ---------- 表格 ---------- */
+  .table{width:100%;border-collapse:collapse;font-size:13px}
+  .table th{
+    text-align:left;font-size:11.5px;font-weight:600;color:var(--dim2);letter-spacing:.6px;
+    text-transform:uppercase;padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap
+  }
+  .table td{padding:11px 12px;border-bottom:1px solid rgba(34,48,63,.6);vertical-align:middle}
+  .table tr:last-child td{border-bottom:none}
+  .table tbody tr:hover{background:rgba(79,156,249,.045)}
+  .repo{font-weight:600;font-size:13.5px}
+  .repo small{display:block;font-weight:400;color:var(--dim2);font-size:11.5px;margin-top:1px}
+  .acts{display:flex;gap:5px;flex-wrap:wrap}
+
+  .badge{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;font-size:11.5px;font-weight:600;white-space:nowrap}
+  .b-ok{background:rgba(52,211,153,.12);color:#6ee7b7;border:1px solid rgba(52,211,153,.25)}
+  .b-behind{background:rgba(79,156,249,.13);color:#93c5fd;border:1px solid rgba(79,156,249,.28)}
+  .b-diverge{background:rgba(245,181,68,.13);color:#fcd34d;border:1px solid rgba(245,181,68,.28)}
+  .b-err{background:rgba(248,113,113,.12);color:#fca5a5;border:1px solid rgba(248,113,113,.28)}
+  .b-idle{background:rgba(139,156,176,.10);color:#9fb0c4;border:1px solid rgba(139,156,176,.22)}
+  .b-working{background:rgba(167,139,250,.14);color:#c4b5fd;border:1px solid rgba(167,139,250,.3)}
+  .diff{font-variant-numeric:tabular-nums;color:var(--dim);font-size:12.5px}
+  .diff b{color:var(--text);font-weight:600}
+
+  .empty{padding:44px 20px;text-align:center;color:var(--dim2)}
+  .empty .big{font-size:30px;margin-bottom:8px;opacity:.7}
+
+  /* ---------- 布局 ---------- */
+  .grid{display:grid;grid-template-columns:1.62fr 1fr;gap:16px;align-items:start}
+  @media (max-width:1080px){.grid{grid-template-columns:1fr}.stats{grid-template-columns:repeat(2,1fr)}}
+
+  /* ---------- 日志 ---------- */
+  .logs{max-height:520px;overflow:auto;padding:4px 0}
+  .log{display:flex;gap:9px;padding:7px 14px;font-size:12.5px;border-bottom:1px solid rgba(34,48,63,.45)}
+  .log:last-child{border-bottom:none}
+  .log .t{color:var(--dim2);font-family:ui-monospace,Consolas,monospace;font-size:11.5px;flex:none;padding-top:1px}
+  .log .m{flex:1;min-width:0;word-break:break-word}
+  .log .m .p{color:var(--purple);font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+  .log .m .h{display:block;color:var(--dim2);font-size:11.5px;margin-top:2px}
+  .log.success .tag{background:rgba(52,211,153,.15);color:#6ee7b7}
+  .log.error .tag{background:rgba(248,113,113,.15);color:#fca5a5}
+  .log.warn .tag{background:rgba(245,181,68,.15);color:#fcd34d}
+  .log.info .tag{background:rgba(139,156,176,.13);color:#9fb0c4}
+  .tag{font-size:10.5px;padding:1px 6px;border-radius:5px;flex:none;height:18px;line-height:16px;margin-top:2px;text-transform:uppercase;letter-spacing:.4px}
+
+  /* ---------- 弹窗 ---------- */
+  .mask{position:fixed;inset:0;background:rgba(4,7,11,.72);backdrop-filter:blur(3px);display:none;place-items:center;z-index:50;padding:20px}
+  .mask.show{display:grid}
+  .modal{width:100%;max-width:520px;background:linear-gradient(180deg,#16202c,#101820);border:1px solid var(--line2);border-radius:16px;box-shadow:0 24px 70px rgba(0,0,0,.6);overflow:hidden;animation:pop .16s ease-out}
+  @keyframes pop{from{transform:scale(.97);opacity:0}to{transform:scale(1);opacity:1}}
+  .modal h3{margin:0;font-size:15px;padding:16px 20px;border-bottom:1px solid var(--line)}
+  .modal .body{padding:18px 20px;display:flex;flex-direction:column;gap:14px;max-height:66vh;overflow:auto}
+  .modal .foot{padding:14px 20px;border-top:1px solid var(--line);display:flex;gap:9px;justify-content:flex-end;background:rgba(0,0,0,.15)}
+  .hint{font-size:12px;color:var(--dim2);line-height:1.55}
+  .hint.warn{color:#fcd34d}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .switch{display:flex;align-items:center;gap:9px;cursor:pointer;user-select:none;font-size:13px;color:var(--dim)}
+  .switch input{display:none}
+  .track{width:38px;height:21px;border-radius:999px;background:#26333f;position:relative;transition:.18s;flex:none}
+  .track::after{content:"";position:absolute;top:2px;left:2px;width:17px;height:17px;border-radius:50%;background:#8296ab;transition:.18s}
+  .switch input:checked + .track{background:rgba(52,211,153,.3)}
+  .switch input:checked + .track::after{left:19px;background:var(--ok)}
+
+  /* ---------- toast ---------- */
+  #toasts{position:fixed;right:20px;bottom:20px;display:flex;flex-direction:column;gap:9px;z-index:99;max-width:390px}
+  .toast{
+    padding:11px 15px;border-radius:11px;background:#16212d;border:1px solid var(--line2);
+    box-shadow:0 10px 30px rgba(0,0,0,.5);font-size:13px;animation:slide .18s ease-out;
+  }
+  .toast.ok{border-color:rgba(52,211,153,.4)} .toast.err{border-color:rgba(248,113,113,.45)}
+  .toast .tt{font-weight:600;margin-bottom:1px}
+  .toast.ok .tt{color:#6ee7b7} .toast.err .tt{color:#fca5a5} .toast.warn .tt{color:#fcd34d}
+  .toast .xh{color:var(--dim);font-size:12px;line-height:1.5}
+  @keyframes slide{from{transform:translateY(8px);opacity:0}to{transform:none;opacity:1}}
+  .spin{display:inline-block;width:11px;height:11px;border:2px solid rgba(255,255,255,.25);border-top-color:#fff;border-radius:50%;animation:rot .7s linear infinite;vertical-align:-1px}
+  @keyframes rot{to{transform:rotate(360deg)}}
+  ::-webkit-scrollbar{width:9px;height:9px}
+  ::-webkit-scrollbar-thumb{background:#25333f;border-radius:9px}
+  ::-webkit-scrollbar-thumb:hover{background:#31414f}
+  ::-webkit-scrollbar-track{background:transparent}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="logo">
+      <div class="mark">⑂</div>
+      <div>
+        <h1>ForkSync</h1>
+        <div class="sub">GitHub fork 自动同步 · 服务端合并，无需本地克隆</div>
+      </div>
+    </div>
+    <div class="spacer"></div>
+    <div class="chip" id="tokenChip" title="点击配置 token"><span class="dot" id="tokenDot"></span><span id="tokenText">未配置 token</span></div>
+    <div class="chip" id="schedChip"><span class="dot" id="schedDot"></span><span id="schedText">自动同步关</span></div>
+    <button class="primary" id="btnSyncAll">全部同步</button>
+    <button id="btnCheckAll">刷新状态</button>
+    <button class="ghost" id="btnSettings" title="设置">⚙ 设置</button>
+  </header>
+
+  <div class="stats">
+    <div class="stat"><div class="n" id="sTotal">0</div><div class="l">全部 fork</div></div>
+    <div class="stat w"><div class="n" id="sBehind">0</div><div class="l">落后上游</div></div>
+    <div class="stat p"><div class="n" id="sDiverged">0</div><div class="l">已分叉</div></div>
+    <div class="stat b"><div class="n" id="sError">0</div><div class="l">异常</div></div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-h"><h2>添加 fork</h2><span class="hint" style="margin-left:auto">粘贴你 fork 出来的仓库链接</span></div>
+    <div class="card-b">
+      <div class="add">
+        <label class="f grow">仓库链接 / owner/repo
+          <input id="addInput" placeholder="https://github.com/你的名字/某个仓库  ·  或  owner/repo" autocomplete="off" spellcheck="false">
+        </label>
+        <label class="f">同步策略
+          <select id="addStrategy">
+            <option value="ff">ff · 只快进（推荐）</option>
+            <option value="merge">merge · 允许合并提交</option>
+            <option value="force">force · 强制对齐（丢弃自己提交）</option>
+          </select>
+        </label>
+        <button class="primary" id="btnAdd">＋ 添加</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <div class="card-h">
+        <h2>我的 fork</h2>
+        <span class="hint" id="lastRefresh" style="margin-left:auto"></span>
+      </div>
+      <div id="listArea">
+        <div class="empty"><div class="big">⑂</div>还没有项目，把 fork 链接贴到上面添加</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-h">
+        <h2>同步日志</h2>
+        <select id="logLevel" style="margin-left:auto;padding:4px 8px;font-size:12px">
+          <option value="">全部级别</option>
+          <option value="success">成功</option>
+          <option value="info">信息</option>
+          <option value="warn">警告</option>
+          <option value="error">错误</option>
+        </select>
+        <button class="sm ghost" id="btnLogRefresh">刷新</button>
+      </div>
+      <div class="logs" id="logArea"><div class="empty" style="padding:30px">暂无日志</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- 设置 -->
+<div class="mask" id="maskSettings">
+  <div class="modal">
+    <h3>设置</h3>
+    <div class="body">
+      <label class="f">GitHub Personal Access Token
+        <input id="setToken" type="password" placeholder="ghp_xxx 或 github_pat_xxx（留空表示不修改）" autocomplete="off" spellcheck="false">
+      </label>
+      <div class="hint">
+        公开仓库只需 <code>public_repo</code> 权限；私有仓库需要 <code>repo</code>。
+        生成地址：<a href="https://github.com/settings/tokens" target="_blank" rel="noopener">github.com/settings/tokens</a>
+        <br>token 只保存在本机 <code>config.json</code>（权限 600），不会上传到任何地方。
+      </div>
+      <div style="display:flex;gap:9px;align-items:center">
+        <button class="sm" id="btnTokenTest">验证 token</button>
+        <button class="sm ghost" id="btnTokenClear">清除 token</button>
+        <span class="hint" id="tokenTestOut"></span>
+      </div>
+      <div class="row2">
+        <label class="f">自动同步间隔（分钟）
+          <input id="setInterval" type="number" min="1" max="10080" step="1">
+        </label>
+        <label class="f">新项目默认策略
+          <select id="setStrategy">
+            <option value="ff">ff · 只快进</option>
+            <option value="merge">merge · 允许合并提交</option>
+            <option value="force">force · 强制对齐</option>
+          </select>
+        </label>
+      </div>
+      <label class="switch"><input type="checkbox" id="setAuto"><span class="track"></span> 开启定时自动同步</label>
+      <div class="hint">自动同步在服务进程内运行，关掉窗口不影响；进程退出后停止。想完全无人值守，可用<b>任务计划程序</b>常驻运行本程序。</div>
+
+      <div style="border-top:1px solid #22303f;padding-top:14px;margin-top:2px">
+        <div style="font-size:13px;font-weight:600;color:#c8d6e6;margin-bottom:10px">🛡 删除保护</div>
+        <label class="f">上游删除文件时
+          <select id="setGuard">
+            <option value="warn">warn · 允许同步，但把被删文件列出来（推荐）</option>
+            <option value="block">block · 拦下，必须我手动确认才同步</option>
+            <option value="off">off · 不检查，直接同步</option>
+          </select>
+        </label>
+        <label class="f" style="margin-top:10px">保护名单（正则，逗号分隔，命中的文件绝不允许被删）
+          <input id="setProtected" placeholder="例如：\\.md$,\\.env,config/,Dockerfile" spellcheck="false">
+        </label>
+        <div class="hint">
+          保护名单里的文件一旦出现在「上游要删除」的列表里，<b>无论上面选什么都会被拦下</b>。
+          例如填 <code>\.md$</code> 就表示所有 markdown 文档都不许被同步删掉。
+        </div>
+      </div>
+    </div>
+    <div class="foot">
+      <button class="ghost" data-close>取消</button>
+      <button class="primary" id="btnSaveSettings">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 编辑项目 -->
+<div class="mask" id="maskEdit">
+  <div class="modal">
+    <h3>项目设置 <span class="mono" id="editName" style="color:#8b9cb0;font-size:12px"></span></h3>
+    <div class="body">
+      <div class="row2">
+        <label class="f">同步策略
+          <select id="editStrategy">
+            <option value="ff">ff · 只快进</option>
+            <option value="merge">merge · 允许合并提交</option>
+            <option value="force">force · 强制对齐</option>
+          </select>
+        </label>
+        <label class="f">同步分支
+          <input id="editBranch" placeholder="留空则用默认分支" spellcheck="false">
+        </label>
+      </div>
+      <label class="f">本地克隆路径（可选）
+        <input id="editLocal" placeholder="例如 D:\\code\\myrepo —— 填写后改走本地 git fetch/merge/push" spellcheck="false">
+      </label>
+      <label class="switch"><input type="checkbox" id="editTags"><span class="track"></span> 本地模式同时推送 tags</label>
+      <label class="f">删除保护（本项目）
+        <select id="editGuard">
+          <option value="">跟随全局设置</option>
+          <option value="warn">warn · 允许，但列出被删文件</option>
+          <option value="block">block · 拦下，需手动确认</option>
+          <option value="off">off · 不检查</option>
+        </select>
+      </label>
+      <label class="switch"><input type="checkbox" id="editEnabled"><span class="track"></span> 参与「全部同步」和定时任务</label>
+      <div class="hint">本地模式需要本机安装 git，并已把仓库 clone 到该路径。API 模式不需要本地仓库，但不会同步 tag 与其他分支。</div>
+    </div>
+    <div class="foot">
+      <button class="danger" id="btnEditDelete">删除</button>
+      <div style="flex:1"></div>
+      <button class="ghost" data-close>取消</button>
+      <button class="primary" id="btnEditSave">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 确认 -->
+<div class="mask" id="maskConfirm">
+  <div class="modal" style="max-width:430px">
+    <h3 id="confirmTitle">确认</h3>
+    <div class="body"><div class="hint" id="confirmText" style="font-size:13px;color:#c8d6e6"></div></div>
+    <div class="foot">
+      <button class="ghost" data-close>取消</button>
+      <button class="danger" id="btnConfirmOk">确认执行</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const el = (t, cls, txt) => { const n = document.createElement(t); if (cls) n.className = cls; if (txt != null) n.textContent = txt; return n; };
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+let STATE = { projects: [], config: {}, stats: {}, scheduler: {} };
+let BUSY = new Set();          // 正在同步的项目 id
+let editId = null;
+
+// ---------- HTTP ----------
+function accessKey() { return localStorage.getItem('forksync.key') || ''; }
+
+async function api(path, opts = {}) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (accessKey()) headers['X-Access-Key'] = accessKey();
+  const res = await fetch(path, { method: opts.method || 'GET', headers, body: opts.body ? JSON.stringify(opts.body) : undefined });
+  let data = {};
+  try { data = await res.json(); } catch (e) {}
+  if (res.status === 401 && data.need_key) {
+    const k = prompt('此服务设置了访问密钥，请输入：');
+    if (k !== null) { localStorage.setItem('forksync.key', k.trim()); return api(path, opts); }
+  }
+  if (!res.ok) {
+    const errz = new Error(data.error || data.message || ('HTTP ' + res.status));
+    errz.hint = data.hint || '';
+    errz.payload = data;
+    errz.status = res.status;
+    throw errz;
+  }
+  return data;
+}
+
+// ---------- 提示 ----------
+function toast(title, hint = '', kind = 'ok', ms = 5200) {
+  const box = el('div', 'toast ' + kind);
+  box.appendChild(el('div', 'tt', title));
+  if (hint) box.appendChild(el('div', 'xh', hint));
+  $('#toasts').appendChild(box);
+  setTimeout(() => { box.style.transition = '.25s'; box.style.opacity = '0'; box.style.transform = 'translateY(6px)'; setTimeout(() => box.remove(), 260); }, ms);
+}
+function err(e) { toast(e.message || '操作失败', e.hint || '', 'err', 8000); }
+
+// ---------- 弹窗 ----------
+function openModal(id) { $('#' + id).classList.add('show'); }
+function closeModal(id) { $('#' + id).classList.remove('show'); }
+document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', e => e.target.closest('.mask').classList.remove('show')));
+document.querySelectorAll('.mask').forEach(m => m.addEventListener('click', e => { if (e.target === m) m.classList.remove('show'); }));
+document.addEventListener('keydown', e => { if (e.key === 'Escape') document.querySelectorAll('.mask.show').forEach(m => m.classList.remove('show')); });
+
+let confirmCb = null;
+function confirmBox(title, text, cb, okText = '确认执行') {
+  $('#confirmTitle').textContent = title;
+  $('#confirmText').textContent = text;
+  $('#btnConfirmOk').textContent = okText;
+  confirmCb = cb;
+  openModal('maskConfirm');
+}
+$('#btnConfirmOk').addEventListener('click', async () => {
+  const cb = confirmCb; confirmCb = null; closeModal('maskConfirm');
+  if (cb) await cb();
+});
+// ---------- 渲染 ----------
+const STATUS = {
+  'up-to-date': { cls: 'b-ok', text: '已最新' },
+  'behind': { cls: 'b-behind', text: '落后' },
+  'ahead': { cls: 'b-behind', text: '领先' },
+  'diverged': { cls: 'b-diverge', text: '已分叉' },
+  'unknown': { cls: 'b-idle', text: '未知' },
+  'error': { cls: 'b-err', text: '错误' },
+};
+
+function ago(iso) {
+  if (!iso) return '—';
+  const d = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (isNaN(d)) return '—';
+  if (d < 60) return Math.max(1, Math.floor(d)) + ' 秒前';
+  if (d < 3600) return Math.floor(d / 60) + ' 分钟前';
+  if (d < 86400) return Math.floor(d / 3600) + ' 小时前';
+  return Math.floor(d / 86400) + ' 天前';
+}
+
+function render() {
+  const { projects, stats, config, scheduler } = STATE;
+
+  $('#sTotal').textContent = stats.total ?? 0;
+  $('#sBehind').textContent = stats.behind ?? 0;
+  $('#sDiverged').textContent = stats.diverged ?? 0;
+  $('#sError').textContent = stats.error ?? 0;
+
+  const t = $('#tokenDot'), tt = $('#tokenText');
+  if (config.token_set) { t.className = 'dot on'; tt.textContent = 'token 已配置 ' + (config.token_hint || ''); }
+  else { t.className = 'dot off'; tt.textContent = '未配置 token（受限流影响）'; }
+
+  const sd = $('#schedDot'), st = $('#schedText');
+  if (scheduler.auto_sync) {
+    sd.className = 'dot on';
+    const n = scheduler.next_run_in;
+    st.textContent = '自动同步：每 ' + scheduler.interval_minutes + ' 分钟' + (n ? '（' + fmtDur(n) + '后）' : '');
+  } else { sd.className = 'dot'; st.textContent = '自动同步关'; }
+
+  renderList(projects);
+}
+
+function fmtDur(s) {
+  if (s == null) return '';
+  if (s < 60) return s + ' 秒';
+  if (s < 3600) return Math.round(s / 60) + ' 分钟';
+  return Math.round(s / 3600) + ' 小时';
+}
+
+function renderList(projects) {
+  const area = $('#listArea');
+  if (!projects.length) {
+    area.innerHTML = '<div class="empty"><div class="big">⑂</div>还没有项目，把 fork 链接贴到上面添加</div>';
+    return;
+  }
+  const table = el('table', 'table');
+  table.innerHTML = `<thead><tr>
+    <th>仓库</th><th>上游</th><th>状态</th><th>差距</th><th>上次同步</th><th style="text-align:right">操作</th>
+  </tr></thead>`;
+  const tb = el('tbody');
+
+  for (const p of projects) {
+    const tr = el('tr');
+    const s = STATUS[p.status] || STATUS.unknown;
+    const working = BUSY.has(p.id);
+    const behind = p.behind, ahead = p.ahead;
+    const diff = (behind == null && ahead == null) ? '<span class="diff">—</span>'
+      : `<span class="diff"><b style="color:#93c5fd">↓${behind ?? 0}</b> / <b style="color:#fcd34d">↑${ahead ?? 0}</b></span>`;
+
+    tr.innerHTML = `
+      <td>
+        <div class="repo">${esc(p.full_name)}
+          <small>${p.enabled === false ? '已停用 · ' : ''}策略 ${esc(p.strategy)}${p.local_path ? ' · 本地模式' : ''}</small>
+        </div>
+      </td>
+      <td><a href="https://github.com/${esc(p.upstream)}" target="_blank" rel="noopener" class="mono" style="font-size:12.5px">${esc(p.upstream)}</a>
+        <small style="display:block;color:#63768c;font-size:11.5px">分支 ${esc(p.branch)}</small></td>
+      <td>${working ? '<span class="badge b-working"><span class="spin"></span>同步中</span>'
+        : `<span class="badge ${s.cls}">${s.text}</span>`}
+        <div class="hint" style="font-size:11px;margin-top:3px;max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(p.message)}">${esc(p.message || '')}</div>
+      </td>
+      <td>${diff}</td>
+      <td class="diff">${ago(p.last_sync)}</td>
+      <td><div class="acts" style="justify-content:flex-end">
+        <button class="sm primary" data-act="sync" ${working ? 'disabled' : ''}>同步</button>
+        <button class="sm" data-act="check" ${working ? 'disabled' : ''}>检查</button>
+        <button class="sm ghost" data-act="edit">设置</button>
+        <button class="sm ghost" data-act="open" title="在 GitHub 打开">↗</button>
+      </div></td>`;
+
+    tr.querySelector('[data-act="sync"]').onclick = () => doSync(p);
+    tr.querySelector('[data-act="check"]').onclick = () => doCheck(p);
+    tr.querySelector('[data-act="edit"]').onclick = () => openEdit(p);
+    tr.querySelector('[data-act="open"]').onclick = () => window.open('https://github.com/' + p.full_name, '_blank', 'noopener');
+    if (p.pending_deletion_count) {
+      const badge = el('span', 'badge b-err');
+      badge.style.cssText = 'margin-left:6px;cursor:pointer';
+      badge.textContent = '✗ 删 ' + p.pending_deletion_count;
+      badge.title = '点开查看会被删除的文件';
+      badge.onclick = () => showDeletionList(p);
+      tr.children[3].appendChild(badge);
+    }
+    tb.appendChild(tr);
+  }
+  table.appendChild(tb);
+  area.replaceChildren(table);
+}
+
+function renderLogs(logs) {
+  const area = $('#logArea');
+  if (!logs || !logs.length) { area.innerHTML = '<div class="empty" style="padding:30px">暂无日志</div>'; return; }
+  const frag = document.createDocumentFragment();
+  for (const l of logs) {
+    const d = el('div', 'log ' + (l.level || 'info'));
+    const time = (l.t || '').slice(11, 19);
+    d.innerHTML = `<span class="t">${esc(time)}</span><span class="tag">${esc(l.level || 'info')}</span>
+      <div class="m">${l.project ? '<span class="p">' + esc(l.project) + '</span> · ' : ''}${esc(l.message)}
+      ${l.detail ? '<span class="h" title="' + esc(l.detail) + '">' + esc(l.detail.split('\n').slice(0, 2).join(' ').slice(0, 160)) + '</span>' : ''}</div>`;
+    frag.appendChild(d);
+  }
+  area.replaceChildren(frag);
+}
+
+// ---------- 数据 ----------
+async function loadState(silent = true) {
+  try {
+    STATE = await api('/api/state');
+    render();
+    $('#lastRefresh').textContent = '更新于 ' + new Date().toLocaleTimeString('zh-CN', { hour12: false });
+  } catch (e) { if (!silent) err(e); }
+}
+
+async function loadLogs() {
+  try {
+    const lv = $('#logLevel').value;
+    const d = await api('/api/logs?limit=160' + (lv ? '&level=' + lv : ''));
+    renderLogs(d.logs);
+  } catch (e) { }
+}
+
+// ---------- 动作 ----------
+async function doSync(p) {
+  if (p.strategy === 'force') {
+    confirmBox('强制对齐（危险）',
+      `${p.full_name}\n\n会把你分支强制指向上游 HEAD，fork 上独有的提交会被丢弃。确认继续？`,
+      () => runSync(p, true), '强制对齐');
+    return;
+  }
+  await runSync(p, false);
+}
+
+async function runSync(p, force, allowDeletions) {
+  BUSY.add(p.id); render();
+  try {
+    const url = force ? `/api/projects/${p.id}/force` : `/api/projects/${p.id}/sync`;
+    const body = force ? { confirm: true } : {};
+    if (allowDeletions) body.allow_deletions = true;
+    const r = await api(url, { method: 'POST', body });
+    if (r.ok && r.changed) toast('同步完成：' + p.full_name, r.message, 'ok');
+    else if (r.ok) toast('无需同步：' + p.full_name, r.message, 'warn');
+    else toast('未同步：' + p.full_name, (r.message || '') + (r.hint ? '\n' + r.hint : ''), 'err', 9000);
+  } catch (e) {
+    const payload = e.payload || {};
+    // 被删除保护拦下：弹确认框，列出会被删掉的文件
+    if (payload.blocked || (payload.deletions && payload.deletions.length)) {
+      showDeletionConfirm(p, payload, force);
+      return;
+    }
+    toast('同步失败：' + p.full_name, (e.message || '') + (e.hint ? '\n' + e.hint : ''), 'err', 9000);
+  } finally {
+    BUSY.delete(p.id);
+    await loadState(); loadLogs();
+  }
+}
+
+function showDeletionConfirm(p, payload, force) {
+  const dels = payload.deletions || [];
+  const list = dels.slice(0, 40).map(f => `<div class="mono" style="color:#fca5a5">✗ ${esc(f)}</div>`).join('');
+  const more = dels.length > 40 ? `<div class="hint">… 另有 ${dels.length - 40} 个文件</div>` : '';
+  $('#confirmTitle').textContent = '⚠ 上游会删除文件';
+  $('#confirmText').innerHTML =
+    `<div style="margin-bottom:10px">同步 <b>${esc(p.full_name)}</b> 后，下面这些文件会从你的 fork 里<b>消失</b>（因为上游删了它们）：</div>
+     <div style="max-height:240px;overflow:auto;background:#0c131b;border:1px solid #4b2b32;border-radius:9px;padding:10px;font-size:12px">${list}${more}</div>
+     <div class="hint" style="margin-top:10px">确认无误就继续。不想每次都看到这个提示，可以到「设置 → 删除保护」调整，或把关键路径加进保护名单。</div>`;
+  $('#btnConfirmOk').textContent = '我确认，继续同步';
+  confirmCb = async () => { await runSync(p, force, true); };
+  openModal('maskConfirm');
+}
+
+async function doCheck(p) {
+  BUSY.add(p.id); render();
+  try {
+    const r = await api(`/api/projects/${p.id}/check`, { method: 'POST', body: {} });
+    toast('状态已更新', r.project.message || '', 'ok');
+  } catch (e) { err(e); }
+  finally { BUSY.delete(p.id); await loadState(); loadLogs(); }
+}
+
+$('#btnAdd').onclick = async () => {
+  const input = $('#addInput').value.trim();
+  if (!input) { toast('请先粘贴 fork 链接', '', 'warn'); return; }
+  const btn = $('#btnAdd'); btn.disabled = true; btn.innerHTML = '<span class="spin"></span> 添加中';
+  try {
+    const r = await api('/api/projects', { method: 'POST', body: { input, strategy: $('#addStrategy').value } });
+    $('#addInput').value = '';
+    toast('已添加 ' + r.project.full_name, '上游：' + r.project.upstream + ' · ' + (r.project.message || ''), 'ok');
+    await loadState(); loadLogs();
+  } catch (e) { err(e); }
+  finally { btn.disabled = false; btn.textContent = '＋ 添加'; }
+};
+$('#addInput').addEventListener('keydown', e => { if (e.key === 'Enter') $('#btnAdd').click(); });
+
+$('#btnSyncAll').onclick = async () => {
+  const active = STATE.projects.filter(p => p.enabled !== false);
+  if (!active.length) { toast(STATE.projects.length ? '所有项目都已停用' : '列表为空', STATE.projects.length ? '在项目的「设置」里勾选「参与全部同步」' : '', 'warn'); return; }
+  const btn = $('#btnSyncAll'); btn.disabled = true; btn.innerHTML = '<span class="spin"></span> 同步中';
+  STATE.projects.filter(p => p.enabled !== false).forEach(p => BUSY.add(p.id)); render();
+  try {
+    const r = await api('/api/sync_all', { method: 'POST', body: {} });
+    const s = r.summary;
+    toast(`批量同步完成：更新 ${s.updated}，跳过 ${s.skipped}，失败 ${s.failed}`,
+      s.failed ? '失败详情见右下角日志' : '所有 fork 已处理', s.failed ? 'warn' : 'ok', 7000);
+  } catch (e) { err(e); }
+  finally { BUSY.clear(); btn.disabled = false; btn.textContent = '全部同步'; await loadState(); loadLogs(); }
+};
+
+$('#btnCheckAll').onclick = async () => {
+  if (!STATE.projects.length) return;
+  const btn = $('#btnCheckAll'); btn.disabled = true; btn.innerHTML = '<span class="spin"></span> 检查中';
+  try {
+    await api('/api/check_all', { method: 'POST', body: {} });
+    await loadState();
+    toast('状态已全部刷新', '', 'ok');
+  } catch (e) { err(e); }
+  finally { btn.disabled = false; btn.textContent = '刷新状态'; }
+};
+
+// ---------- 设置 ----------
+function openSettings() {
+  const c = STATE.config || {};
+  const t = $('#setToken');
+  $('#setToken').value = '';
+  if (c.token_source === 'env') {
+    t.disabled = true;
+    t.placeholder = '当前 token 由环境变量 FORKSYNC_TOKEN 提供，界面不可修改';
+  } else {
+    t.disabled = false;
+    t.placeholder = c.token_set ? '已配置（' + (c.token_hint || '') + '），留空表示不修改' : 'ghp_xxx 或 github_pat_xxx';
+  }
+  $('#setInterval').value = c.interval_minutes ?? 30;
+  $('#setStrategy').value = c.default_strategy || 'ff';
+  $('#setAuto').checked = !!c.auto_sync;
+  $('#setGuard').value = c.deletion_guard || 'warn';
+  $('#setProtected').value = c.protected_paths || '';
+  $('#tokenTestOut').textContent = '';
+  openModal('maskSettings');
+}
+$('#btnSettings').onclick = openSettings;
+$('#tokenChip').onclick = openSettings;
+
+$('#btnSaveSettings').onclick = async () => {
+  const body = {
+    auto_sync: $('#setAuto').checked,
+    interval_minutes: Number($('#setInterval').value || 30),
+    default_strategy: $('#setStrategy').value,
+    deletion_guard: $('#setGuard').value,
+    protected_paths: $('#setProtected').value.trim(),
+  };
+  const tk = $('#setToken').value.trim();
+  if (tk) body.token = tk;
+  try {
+    await api('/api/settings', { method: 'POST', body });
+    closeModal('maskSettings');
+    toast('设置已保存', body.auto_sync ? '定时同步已开启' : '定时同步已关闭', 'ok');
+    await loadState();
+  } catch (e) { err(e); }
+};
+
+$('#btnTokenTest').onclick = async () => {
+  const out = $('#tokenTestOut');
+  const tk = $('#setToken').value.trim();
+  try {
+    if (tk) await api('/api/settings', { method: 'POST', body: { token: tk } });
+    out.textContent = '验证中…';
+    const r = await api('/api/token/test');
+    const scopes = r.classic ? (r.scopes.length ? r.scopes.join(', ') : '无') : 'fine-grained';
+    out.innerHTML = `✓ ${esc(r.login)} · 权限：${esc(scopes)} · 剩余 ${esc(r.rate.remaining)}/${esc(r.rate.limit)}`;
+    if (r.warning) {
+      toast('token 权限提醒', r.warning, 'warn', 15000);
+      out.innerHTML += `<br><span style="color:#fcd34d">⚠ ${esc(r.warning)}</span>`;
+    }
+    await loadState();
+  } catch (e) { out.textContent = '✗ ' + e.message; }
+};
+
+$('#btnTokenClear').onclick = () => confirmBox('清除 token', '清除后只能访问公开仓库，且每小时上限 60 次请求。', async () => {
+  await api('/api/settings', { method: 'POST', body: { token: '' } });
+  $('#setToken').value = ''; $('#tokenTestOut').textContent = '已清除';
+  await loadState();
+});
+
+// ---------- 编辑项目 ----------
+function openEdit(p) {
+  editId = p.id;
+  $('#editName').textContent = p.full_name;
+  $('#editStrategy').value = p.strategy || 'ff';
+  $('#editBranch').value = p.branch || '';
+  $('#editLocal').value = p.local_path || '';
+  $('#editTags').checked = !!p.sync_tags;
+  $('#editGuard').value = p.deletion_guard || '';
+  $('#editEnabled').checked = p.enabled !== false;
+  openModal('maskEdit');
+}
+
+$('#btnEditSave').onclick = async () => {
+  try {
+    await api('/api/projects/' + editId, {
+      method: 'PATCH',
+      body: {
+        strategy: $('#editStrategy').value,
+        branch: $('#editBranch').value.trim(),
+        local_path: $('#editLocal').value.trim(),
+        sync_tags: $('#editTags').checked,
+        deletion_guard: $('#editGuard').value,
+        enabled: $('#editEnabled').checked,
+      },
+    });
+    closeModal('maskEdit');
+    toast('已保存项目设置', '', 'ok');
+    await loadState();
+  } catch (e) { err(e); }
+};
+
+$('#btnEditDelete').onclick = () => {
+  const p = STATE.projects.find(x => x.id === editId);
+  closeModal('maskEdit');
+  confirmBox('删除项目', `从列表中移除 ${p ? p.full_name : ''}？\n只会删掉本地记录，GitHub 上的仓库不受影响。`, async () => {
+    try {
+      await api('/api/projects/' + editId, { method: 'DELETE' });
+      toast('已删除', '', 'ok');
+      await loadState(); loadLogs();
+    } catch (e) { err(e); }
+  }, '删除');
+};
+
+function showDeletionList(p) {
+  const dels = p.pending_deletions || [];
+  const renames = p.pending_renames || [];
+  const list = dels.map(f => `<div class="mono" style="color:#fca5a5">✗ ${esc(f)}</div>`).join('') || '<div class="hint">（无）</div>';
+  const rlist = renames.length
+    ? '<div style="margin-top:12px;font-weight:600">会被重命名</div>' + renames.map(f => `<div class="mono" style="color:#fcd34d">→ ${esc(f)}</div>`).join('')
+    : '';
+  $('#confirmTitle').textContent = '会被删除的文件';
+  $('#confirmText').innerHTML =
+    `<div style="margin-bottom:10px">同步 <b>${esc(p.full_name)}</b> 时，下面这些文件会从你的 fork 里消失（上游删除了它们）：</div>
+     <div style="max-height:300px;overflow:auto;background:#0c131b;border:1px solid #4b2b32;border-radius:9px;padding:10px;font-size:12px">${list}</div>
+     ${rlist}
+     <div class="hint" style="margin-top:10px">这只是预览。不想被删就把路径加进「设置 → 删除保护 → 保护名单」，那样同步会被直接拦下。</div>`;
+  $('#btnConfirmOk').textContent = '知道了';
+  confirmCb = null;
+  openModal('maskConfirm');
+}
+
+// ---------- 日志 ----------
+$('#btnLogRefresh').onclick = loadLogs;
+$('#logLevel').onchange = loadLogs;
+
+// ---------- 轮询 ----------
+setInterval(() => loadState(), 7000);
+setInterval(() => { if (!document.hidden) loadLogs(); }, 9000);
+
+(async function init() {
+  await loadState(false);
+  await loadLogs();
+  if (!STATE.config || !STATE.config.token_set) {
+    setTimeout(() => toast('建议先配置 GitHub token', '不配置也能用，但公开 API 每小时只有 60 次请求；点右上角「设置」填入 token', 'warn', 9000), 600);
+  }
+})();
+</script>
+</body>
+</html>
